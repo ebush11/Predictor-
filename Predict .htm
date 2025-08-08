@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AUD/CAD Real-Time Predictor</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      padding: 20px;
+      margin: 0;
+    }
+    h1 {
+      text-align: center;
+      font-size: 24px;
+    }
+    #signal {
+      font-size: 20px;
+      text-align: center;
+      padding: 20px;
+      margin: 20px;
+      border-radius: 10px;
+    }
+    .buy { background-color: green; }
+    .sell { background-color: red; }
+    .wait { background-color: gray; }
+    .info {
+      margin-top: 10px;
+      font-size: 14px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Real-Time AUD/CAD Predictor</h1>
+  <div id="signal" class="wait">Loading...</div>
+  <div class="info" id="indicators"></div>
+
+  <script>
+    const API_KEY = "d2an3dhr01qgk9ufneggd2an3dhr01qgk9ufneh0";
+
+    async function getHistoricalRates() {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 10);
+      const format = date => date.toISOString().split('T')[0];
+      const url = `https://api.exchangerate.host/timeseries?start_date=${format(start)}&end_date=${format(end)}&base=AUD&symbols=CAD`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return Object.values(data.rates).map(r => r.CAD);
+    }
+
+    function calculateRSI(closes, period = 14) {
+      let gains = 0, losses = 0;
+      for (let i = 1; i <= period; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      const rs = gains / losses;
+      return 100 - (100 / (1 + rs));
+    }
+
+    function calculateMACD(prices, shortPeriod = 12, longPeriod = 26, signalPeriod = 9) {
+      const ema = (arr, period) => {
+        const k = 2 / (period + 1);
+        let emaArray = [arr[0]];
+        for (let i = 1; i < arr.length; i++) {
+          emaArray.push(arr[i] * k + emaArray[i - 1] * (1 - k));
+        }
+        return emaArray;
+      };
+      const shortEMA = ema(prices, shortPeriod);
+      const longEMA = ema(prices, longPeriod);
+      const macdLine = shortEMA.map((val, i) => val - longEMA[i]);
+      const signalLine = ema(macdLine, signalPeriod);
+      const histogram = macdLine.map((val, i) => val - signalLine[i]);
+      return { macdLine, signalLine, histogram };
+    }
+
+    async function getPatternSignal() {
+      try {
+        const res = await fetch(`https://finnhub.io/api/v1/scan/pattern?symbol=AUDCAD&resolution=5&token=${API_KEY}`);
+        const data = await res.json();
+        if (data?.technicalAnalysis?.count > 0) {
+          return data.technicalAnalysis[0].pattern;
+        }
+        return "No pattern";
+      } catch (e) {
+        return "Pattern unavailable";
+      }
+    }
+
+    async function updateSignal() {
+      const rates = await getHistoricalRates();
+      const rsi = calculateRSI(rates);
+      const macd = calculateMACD(rates);
+      const pattern = await getPatternSignal();
+
+      let signal = "WAIT";
+      let css = "wait";
+
+      if (rsi < 30 && macd.histogram.at(-1) > 0) {
+        signal = "BUY";
+        css = "buy";
+      } else if (rsi > 70 && macd.histogram.at(-1) < 0) {
+        signal = "SELL";
+        css = "sell";
+      }
+
+      document.getElementById("signal").textContent = signal;
+      document.getElementById("signal").className = css;
+      document.getElementById("indicators").innerHTML = `
+        RSI: ${rsi.toFixed(2)} |
+        MACD: ${macd.histogram.at(-1).toFixed(5)} |
+        Pattern: <strong>${pattern}</strong>
+      `;
+    }
+
+    updateSignal();
+    setInterval(updateSignal, 60 * 1000);
+  </script>
+</body>
+</html>
